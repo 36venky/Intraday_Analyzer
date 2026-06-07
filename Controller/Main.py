@@ -8,8 +8,8 @@ import glob
 import os
 
 def run_all_analyzers():
-    # Path to the 'mod' folder
-    mod_folder = os.path.join(os.path.dirname(__file__), "Modules")
+    # Path to the 'Modules' folder (at project root)
+    mod_folder = os.path.join(os.path.dirname(__file__), "..", "Modules")
 
     # Find all scripts inside the mod folder that start with 'mod_'
     scripts = glob.glob(os.path.join(mod_folder, "mod_*.py"))
