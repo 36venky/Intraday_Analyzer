@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import Analyze_Sleep as AS
+from Controller import *
 import logging
 from Data_Manager import *
 
@@ -16,5 +16,4 @@ logging.info("🚀 Analyzer [1] started...")
 
 while True:
     download_daily_all()
-    AS.analyze_real_time(get_ticker(1))
-    AS.wait_until_next_15_min()
+    Analyzer(get_ticker(1))
