@@ -1,0 +1,16 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from Data_Manager import *
+import Analyze_Sleep as AS
+import logging
+
+logging.info("🚀 Analyzer [2] started...")
+
+# tickers = ['3IINFOLTD', 'A2ZINFRA', 'ABINFRA', 'ABSLPSE', 'AFIL', 'AKSHOPTFBR', 'ALLCARGO', 'ALMONDZ', 'ALOKINDS', 'AONEGOLD', 'AONENIFTY', 'AONETOTAL', 'ASMS', 'ATL-RE', 'AVONMORE', 'AXITA', 'BAGFILMS', 'BLBLIMITED', 'BTML', 'CAPTRUST', 'CCCL', 'CELEBRITY', 'CREATIVEYE', 'GLOBALE', 'GOLDSTAR', 'GREENPOWER', 'GROWWMOM50', 'GROWWNET', 'GROWWNIFTY', 'GROWWPOWER', 'GROWWSC250', 'GTL', 'HARDWYN', 'HATHWAY', 'HCL-INSYS', 'HEALTHY', 'HLVLTD', 'INDOWIND', 'IVC', 'JETFREIGHT', 'JYOTISTRUC', 'KAMOPAINTS', 'KELLTONTEC', 'KESORAMIND', 'LPDC', 'METAL', 'MGEL', 'MID150CASE', 'MIDSELIETF', 'MKPL', 'MOKSH', 'MOSMALL250', 'MOTISONS', 'NIFTYCASE', 'NILAINFRA', 'NILASPACES', 'NV20IETF', 'OILIETF', 'ORIENTALTL', 'OSIAHYPER', 'PARSVNATH', 'PILITA', 'PRAXIS', 'PRITIKAUTO', 'RAMASTEEL', 'RANASUG', 'RUCHINFRA', 'SADBHAV', 'SADHNANIQ', 'SHYAMCENT', 'SIKKO', 'SML100CASE', 'SPCENET', 'STEELXIND', 'SUBEXLTD', 'SYNCOMF', 'TOP100CASE', 'TOP15IETF', 'TREEHOUSE', 'UNITECH', 'URJA', 'VAISHALI', 'VAKRANGEE', 'VARDMNPOLY', 'VIPULLTD', 'VISHWARAJ', 'ZEELEARN', 'ZEEMEDIA']#EX.Price.list(20, 30)
+# tickers = [t + '.NS' for t in tickers]
+
+while True:
+    
+    AS.analyze_real_time(get_ticker(2))
+    AS.wait_until_next_15_min()
