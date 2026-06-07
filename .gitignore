@@ -1,0 +1,20 @@
+# Ignore virtual environment
+intraday/
+
+# Ignore environment variables file
+.env
+
+# Ignore all Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore Trail and Logs folders
+Trail/
+Logs/
+
+# Ignore IDE/OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
