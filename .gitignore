@@ -1,20 +1,67 @@
-# Ignore virtual environment
+# ─── Virtual Environment ───────────────────────────────────────────────────────
 intraday/
+venv/
+.venv/
+env/
 
-# Ignore environment variables file
+# ─── Environment Variables & Secrets ───────────────────────────────────────────
 .env
+.env.*
+*.pem
+*.key
+secrets.json
+config/secrets.*
 
-# Ignore all Python cache files
+# ─── Python Cache & Build Artifacts ────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+wheels/
 
-# Ignore Trail and Logs folders
-Trail/
+# ─── Testing & Coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# ─── Logs & Temporary Files ────────────────────────────────────────────────────
 Logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
 
-# Ignore IDE/OS files
+# ─── Trail / Debug Folders ─────────────────────────────────────────────────────
+Trail/
+
+# ─── Data Files (if sensitive or large) ────────────────────────────────────────
+*.csv
+*.xlsx
+*.db
+*.sqlite
+*.sqlite3
+
+# ─── Jupyter Notebooks Checkpoints ─────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── Docker ────────────────────────────────────────────────────────────────────
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# ─── IDE & OS Files ────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.suo
+*.user
 Thumbs.db
 .DS_Store
+desktop.ini
