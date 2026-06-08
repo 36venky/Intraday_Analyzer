@@ -12,11 +12,11 @@ from Data_Manager.tickers import get_ticker, get_all_tickers
 # LOGGING CONFIG
 # =========================================================
 
-os.makedirs("logs", exist_ok=True)
+os.makedirs(os.path.join(os.path.dirname(__file__), '..', 'Logs'), exist_ok=True)
 
 logging.basicConfig(
 
-    filename="Logs/market_data.log",
+    filename=os.path.join(os.path.dirname(__file__), '..', 'Logs', 'market_data.log'),
     
     level=logging.INFO,
 
@@ -159,9 +159,9 @@ def Download(tickers):
 
             MARKET_DATA[ticker][interval] = df
 
-            logging.info(
-                f"[{ticker}] {interval} stored successfully."
-            )
+        logging.info(
+            f"[{len(ticker)}] {interval} stored successfully."
+        )
 
 
 def download_daily_all(tickers=None):
