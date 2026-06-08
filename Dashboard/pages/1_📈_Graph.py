@@ -4,11 +4,10 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, time
 import pytz
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-# -------------------------------
-# CONFIG
-# -------------------------------
-st.set_page_config(layout="wide")
 st.title("📈 Real-Time Candlestick Dashboard")
 
 # -------------------------------
@@ -34,27 +33,21 @@ def get_valid_periods(interval):
     if interval == "1m":
         return ["1d", "5d"]
     elif interval in ["5m", "15m"]:
-        return ["1d","2d", "5d","15d", "1mo"]
-    return ["1d", "5d", "1mo", "3mo","6mo", "1y"]
+        return ["1d", "2d", "5d", "15d", "1mo"]
+    return ["1d", "5d", "1mo", "3mo", "6mo", "1y"]
 
-from Features.UI import get_user_inputs,get_indicator_settings
+from Dashboard.Features.UI import get_user_inputs, get_indicator_settings
+from Dashboard.Features.render_dashboard import render_dashboard
 
-inputs = get_user_inputs(get_valid_periods)
+inputs   = get_user_inputs(get_valid_periods)
 settings = get_indicator_settings()
-tickers = inputs["tickers"]
-interval = inputs["interval"]
-period = inputs["period"]
+
+tickers      = inputs["tickers"]
+interval     = inputs["interval"]
+period       = inputs["period"]
 refresh_rate = inputs["refresh_rate"]
 
-from Features.render_dashboard import render_dashboard
 render_dashboard(tickers, interval, period, settings)
 
-# -------------------------------
-# AUTO REFRESH
-# -------------------------------
 st.caption(f"Refreshing every {refresh_rate} sec")
-
-st_autorefresh(
-    interval=refresh_rate * 1000,
-    key="dashboard_refresh"
-)
+st_autorefresh(interval=refresh_rate * 1000, key="dashboard_refresh")
