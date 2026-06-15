@@ -77,7 +77,7 @@ def Download(tickers):
             try:
 
                 # MULTI TICKER
-                if len(tickers) > 1:
+                if len(tickers) > 0:
 
                     df = data[ticker][
                         ['Open', 'High', 'Low', 'Close','Volume']
@@ -180,11 +180,11 @@ def download_daily_all(tickers=None):
 
         data = yf.download(
 
-            tickers=all_tickers,
+            tickers=tickers,
 
             interval="1d",
 
-            period="5d",
+            period="1y",
 
             progress=False,
 
@@ -201,7 +201,7 @@ def download_daily_all(tickers=None):
 
         return
 
-    for ticker in all_tickers:
+    for ticker in tickers:
 
         try:
 
@@ -276,11 +276,20 @@ def get_data(ticker, interval):
 
     if minutes:
 
-        now = pd.Timestamp.now(tz='Asia/Kolkata')
-
-        last_candle_time = df.index[-1]
-
+        last_candle_time  = df.index[-1]
         candle_close_time = last_candle_time + pd.Timedelta(minutes=minutes)
+
+        # Match timezone awareness between index and now
+        if candle_close_time.tzinfo is not None:
+            now = pd.Timestamp.now(tz=candle_close_time.tzinfo)
+        else:
+            now = pd.Timestamp.now()
+
+        # After market close (15:15) — last candle is fully closed, return [-1]
+        market_close = now.replace(hour=15, minute=15, second=0, microsecond=0)
+        if now > market_close and interval != "1d":
+            logging.info(f"[{ticker}] Market closed. Returning [-1] candle.")
+            return df.iloc[-1:]
 
         if candle_close_time > now:
 
