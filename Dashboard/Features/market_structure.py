@@ -1,5 +1,13 @@
+import os
+import sys
 import numpy as np
 from sklearn.linear_model import LinearRegression
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from Structure.Highs_Lows import (
+    get_confirmed_swings,
+    build_swing_zones,
+    previous_day_levels,
+)
 
 
 # =========================================================
@@ -376,3 +384,69 @@ def get_swing_sequence(df, window=3, min_move=0.005):
             alternated.append(p)
 
     return alternated
+
+
+# =========================================================
+# SWING ZONES  (delegates to Structure/Highs_Lows.py)
+# =========================================================
+def get_swing_zones(df, window=3, significance=0.005, confirm_pct=0.01):
+    """
+    Returns confirmed swings and their rectangle zones.
+    Delegates entirely to Structure.Highs_Lows so logic lives in one place.
+
+    Returns:
+        swings : list of { index, price, type }
+        zones  : list of { type, left, right, top, bottom, broken }
+    """
+    swings = get_confirmed_swings(df, window=window,
+                                  significance=significance,
+                                  confirm_pct=confirm_pct)
+    zones  = build_swing_zones(df, swings)
+    return swings, zones
+
+
+# =========================================================
+# PDH / PDL  (direct yfinance fetch, dashboard-safe)
+# =========================================================
+def get_pdh_pdl(ticker):
+    """
+    Returns (prev_high, prev_low) for *ticker* using a direct
+    yfinance fetch — safe to call from the dashboard where
+    MARKET_DATA may not be populated.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from datetime import datetime
+        import pytz
+
+        df = yf.download(
+            ticker,
+            interval="1d",
+            period="5d",
+            progress=False,
+            auto_adjust=True,
+        )
+
+        if df is None or df.empty:
+            return None, None
+
+        # Flatten MultiIndex columns — yfinance wraps even single
+        # tickers in a (field, ticker) MultiIndex.
+        # After flattening we get plain 'High', 'Low', etc.
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
+
+        # Drop rows where OHLC are all NaN (today's incomplete candle)
+        df = df.dropna(subset=["High", "Low", "Open", "Close"])
+
+        if df.empty:
+            return None, None
+
+        prev = df.iloc[-1]
+        return float(prev["High"]), float(prev["Low"])
+
+    except Exception as e:
+        import logging
+        logging.warning(f"get_pdh_pdl({ticker}) failed: {e}")
+        return None, None

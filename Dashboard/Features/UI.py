@@ -89,4 +89,16 @@ def get_indicator_settings():
                 "Line Chart",
                 value=False
             ),
+
+        "show_swing_zones":
+            st.sidebar.checkbox(
+                "Swing Zones",
+                value=False
+            ),
+
+        "show_pdh_pdl":
+            st.sidebar.checkbox(
+                "PDH / PDL",
+                value=False
+            ),
     }
