@@ -160,7 +160,7 @@ if __name__ == "__main__":
     import matplotlib.patches as mpatches
     from Data_Manager import Download
 
-    tickers = ["AURIONPRO.NS"]
+    tickers = ["PPLPHARMA.NS"]
     Download(tickers)
     download_daily_all(tickers)
 
@@ -171,17 +171,21 @@ if __name__ == "__main__":
             print(f"{ticker}  Prev High: {prev_high:.2f}  Prev Low: {prev_low:.2f}")
 
         df = get_data(ticker, "15m")
+        #print(df.tail(2))
         if df is None or df.empty:
             print(f"{ticker} — no data.")
             continue
 
         swings  = get_confirmed_swings(df, window=3, significance=0.005, confirm_pct=0.01)
-        for item in swings:
-            print(f"{item['index']},{item['price']},{item['type']}\n")
+        # for item in swings:
+        #     print(f"{item['index']},{item['price']},{item['type']}\n")
         closes  = df["Close"].values
 
         fig, ax = plt.subplots(figsize=(14, 6))
-        fig.suptitle(f"{ticker} — Confirmed Swing Structure (>1% follow-through)", fontsize=13)
+        fig.patch.set_facecolor("#0f0f0f")
+        ax.set_facecolor("#0f0f0f")
+        fig.suptitle(f"{ticker} — Confirmed Swing Structure (>1% follow-through)",
+                     fontsize=13, color="white")
 
         ax.plot(closes, color="#aaaaaa", linewidth=1, zorder=1, label="Close")
 
@@ -205,10 +209,16 @@ if __name__ == "__main__":
         ax.legend(handles=[
             mpatches.Patch(color="#26a69a", label="Confirmed High ◆"),
             mpatches.Patch(color="#ef5350", label="Confirmed Low ◆"),
-        ] + ax.get_legend_handles_labels()[0][-2:], fontsize=8)
+        ] + ax.get_legend_handles_labels()[0][-2:], fontsize=8,
+          facecolor="#1e1e1e", edgecolor="#444444", labelcolor="white")
 
-        ax.set_xlabel("Bar Index")
-        ax.set_ylabel("Price")
-        ax.grid(True, alpha=0.2)
+        ax.set_xlabel("Bar Index", color="white")
+        ax.set_ylabel("Price", color="white")
+        ax.tick_params(colors="white")
+        ax.spines["bottom"].set_color("#444444")
+        ax.spines["top"].set_color("#444444")
+        ax.spines["left"].set_color("#444444")
+        ax.spines["right"].set_color("#444444")
+        ax.grid(True, alpha=0.15, color="#444444")
         plt.tight_layout()
         plt.show()
