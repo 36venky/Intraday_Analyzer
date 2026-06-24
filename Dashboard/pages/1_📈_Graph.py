@@ -3,9 +3,6 @@ from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 from datetime import datetime, time
 import pytz
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 st.title("📈 Real-Time Candlestick Dashboard")
 

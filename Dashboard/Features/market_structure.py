@@ -1,8 +1,7 @@
 import os
-import sys
 import numpy as np
 from sklearn.linear_model import LinearRegression
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+
 from Structure.Highs_Lows import (
     get_confirmed_swings,
     build_swing_zones,
@@ -413,12 +412,16 @@ def get_pdh_pdl(ticker):
     Returns (prev_high, prev_low) for *ticker* using a direct
     yfinance fetch — safe to call from the dashboard where
     MARKET_DATA may not be populated.
+
+    yfinance 1d data has a timezone-naive UTC index.
+    A candle for "today" is stored as 2026-06-24 00:00 UTC, but
+    when it's 09:30 IST that is still 2026-06-23 UTC — so a naive
+    date comparison lets today's partial candle slip through.
+    Fix: convert the index to IST before comparing dates.
     """
     try:
         import yfinance as yf
         import pandas as pd
-        from datetime import datetime
-        import pytz
 
         df = yf.download(
             ticker,
@@ -431,19 +434,34 @@ def get_pdh_pdl(ticker):
         if df is None or df.empty:
             return None, None
 
-        # Flatten MultiIndex columns — yfinance wraps even single
-        # tickers in a (field, ticker) MultiIndex.
-        # After flattening we get plain 'High', 'Low', etc.
+        # Flatten MultiIndex columns produced by yfinance
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [col[0] for col in df.columns]
 
-        # Drop rows where OHLC are all NaN (today's incomplete candle)
+        # Drop rows where OHLC are all NaN
         df = df.dropna(subset=["High", "Low", "Open", "Close"])
 
         if df.empty:
             return None, None
 
-        prev = df.iloc[-1]
+        # Convert index to IST so date comparisons align with the
+        # Indian trading calendar — yfinance stores 1d timestamps as
+        # UTC midnight, which is behind IST by +05:30.
+        IST = "Asia/Kolkata"
+        if df.index.tz is None:
+            idx_ist = df.index.tz_localize("UTC").tz_convert(IST)
+        else:
+            idx_ist = df.index.tz_convert(IST)
+
+        today_ist = pd.Timestamp.now(tz=IST).date()
+
+        # Keep only candles whose IST date is strictly before today
+        prev_df = df[idx_ist.date < today_ist]
+
+        if prev_df.empty:
+            return None, None
+
+        prev = prev_df.iloc[-1]   # last fully-closed trading day
         return float(prev["High"]), float(prev["Low"])
 
     except Exception as e:
