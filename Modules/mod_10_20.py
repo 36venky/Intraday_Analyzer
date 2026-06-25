@@ -4,16 +4,16 @@
     This enables parallel analysis of multiple tickers simultaneously,
     improving scalability and preventing the main thread from blocking.
 '''
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import Dependencies.Utils.Loggings  # noqa: F401
 
 from Controller import *
 import logging
 from Data_Manager import *
+from Dependencies.Features import Daily_Data
 
 logging.info("🚀 Analyzer [1] started...")
 
+Daily_Data(get_ticker(1))   # downloads 1d data once for this process
+
 while True:
-    download_daily_all()
     Analyzer(get_ticker(1))

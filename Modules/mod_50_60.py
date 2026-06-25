@@ -1,12 +1,12 @@
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from Controller import *
 from Data_Manager import *
+from Dependencies.Features import Daily_Data
 import logging
 
 logging.info("🚀 Analyzer [5] started...")
+
+Daily_Data(get_ticker(5))   # downloads 1d data once for this process
 
 while True:
     Analyzer(get_ticker(5))
