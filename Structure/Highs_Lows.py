@@ -1,5 +1,7 @@
 import os
 import logging
+import numpy as np
+import pandas as pd
 
 from Data_Manager import *
 
@@ -10,22 +12,20 @@ from Data_Manager import *
 
 def previous_day_levels(ticker):
     """
-    Returns (prev_high, prev_low) for the most recent FULLY CLOSED trading day.
+    Returns (prev_high, prev_low) for the correct reference trading day.
 
-    Strategy:
-      - Pull the raw 1d dataframe directly from MARKET_DATA (bypassing
-        get_data's candle-close guard, which can mis-strip the last row).
-      - The yfinance 1d series only contains COMPLETED daily candles;
-        a partial today candle never appears in period="1y" downloads.
-      - We compare each candle's date against today's IST date and take the
-        last candle whose IST date is strictly BEFORE today.
+    Time-aware logic (IST):
+      - Before 09:00 AM  → market hasn't opened yet; yesterday's session is
+                           incomplete/not yet relevant, so return the day
+                           BEFORE yesterday (i.e. iloc[-2] of completed days).
+      - 09:00 AM or later → yesterday's session is the valid reference day
+                           (iloc[-1] of completed days).
 
-    Why IST: yfinance 1d timestamps are UTC midnight.  At 09:30 IST the UTC
-    date is still yesterday, so a naive date comparison would incorrectly
-    keep today's partial candle.  Converting to IST first fixes this.
+    "Completed days" = all 1d candles whose IST date is strictly before
+    today's IST date (yfinance never includes a partial today candle in
+    period="1y" downloads, but we guard anyway).
     """
     from Data_Manager.data import MARKET_DATA
-    import pandas as pd
 
     raw = MARKET_DATA.get(ticker, {}).get("1d")
 
@@ -33,31 +33,46 @@ def previous_day_levels(ticker):
         logging.warning(f"{ticker} daily data unavailable or insufficient.")
         return None, None
 
-    # Convert index to IST so date comparisons align with the Indian
-    # trading calendar regardless of what timezone yfinance used.
     IST = "Asia/Kolkata"
     try:
         if raw.index.tz is None:
             idx_ist = raw.index.tz_localize("UTC").tz_convert(IST)
         else:
             idx_ist = raw.index.tz_convert(IST)
-        today_ist = pd.Timestamp.now(tz=IST).date()
+        now_ist   = pd.Timestamp.now(tz=IST)
+        today_ist = now_ist.date()
     except Exception:
-        idx_ist   = raw.index
-        today_ist = pd.Timestamp.now().date()
+        now_ist   = pd.Timestamp.now()
+        today_ist = now_ist.date()
 
-    # Keep only candles strictly before today (IST)
+    # All fully-closed daily candles (strictly before today)
     prev_df = raw[idx_ist.date < today_ist]
 
     if prev_df.empty:
-        logging.warning(f"{ticker} 1d not available.")
+        logging.warning(f"{ticker} no completed daily candles available.")
         return None, None
 
-    prev      = prev_df.iloc[-1]          # last completed trading day
-    prev_high = float(prev["High"])
-    prev_low  = float(prev["Low"])
+    # Before 09:00 IST — yesterday's session hasn't started yet;
+    # use the day before yesterday as the reference.
+    # At/after 09:00 IST — yesterday is the valid prior day.
+    market_open = now_ist.replace(hour=9, minute=0, second=0, microsecond=0)
 
-    logging.info(f"{ticker} Prev High: {prev_high}, Prev Low: {prev_low}")
+    if now_ist < market_open:
+        # Need at least 2 completed days to go one further back
+        if len(prev_df) < 2:
+            logging.warning(f"{ticker} not enough history for pre-open PDH/PDL.")
+            return None, None
+        ref = prev_df.iloc[-2]          # day before yesterday
+    else:
+        ref = prev_df.iloc[-1]          # yesterday
+
+    prev_high = float(ref["High"])
+    prev_low  = float(ref["Low"])
+
+    logging.info(
+        f"{ticker} PDH/PDL ref date: {idx_ist[raw.index.get_loc(ref.name)] if hasattr(ref, 'name') else 'N/A'} "
+        f"| High: {prev_high}, Low: {prev_low}"
+    )
     return prev_high, prev_low
 
 
@@ -269,12 +284,14 @@ def build_swing_zones(df, swings):
 # =========================================================
 
 if __name__ == "__main__":
+    import numpy as np
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
+    from matplotlib.patches import Rectangle
     from Data_Manager import Download
 
-    tickers = ["SALZERELEC.NS"]
-    Download(tickers,"20d")
+    tickers = ["FUSION.NS"]
+    Download(tickers,"60d")
     download_daily_all(tickers)
 
     for ticker in tickers:
@@ -286,25 +303,86 @@ if __name__ == "__main__":
 
         swings = get_confirmed_swings(df, window=3, significance=0.005, confirm_pct=0.01)
         zones  = build_swing_zones(df, swings)
-        closes = df["Close"].values
+
+        opens  = df["Open"].to_numpy()
+        highs  = df["High"].to_numpy()
+        lows   = df["Low"].to_numpy()
+        closes = df["Close"].to_numpy()
+        x_vals = np.arange(len(df))
+        last_x = len(df) - 1
 
         # ── colours ──
+        BULL_C     = "#26a69a"   # teal  — bullish candle
+        BEAR_C     = "#ef5350"   # red   — bearish candle
         HIGH_CLR   = "#ef5350"   # red   — swing high zone
         LOW_CLR    = "#26a69a"   # teal  — swing low zone
         FILL_A     = 0.18        # fill alpha for active zones
         FILL_A_BRK = 0.07        # fill alpha for broken zones
         EDGE_A     = 0.75
+        PDH_CLR    = "#ffb74d"   # amber — previous day high
+        PDL_CLR    = "#81d4fa"   # sky   — previous day low
+        VLINE_CLR  = "#ffffff"   # white — previous-day boundary lines
 
-        fig, ax = plt.subplots(figsize=(15, 7))
+        fig, ax = plt.subplots(figsize=(16, 7))
         fig.patch.set_facecolor("#0f0f0f")
-        ax.set_facecolor("#0f0f0f")
+        ax.set_facecolor("#141414")
         fig.suptitle(
             f"{ticker}  —  Swing High / Low Zones",
-            fontsize=13, color="white", fontweight="bold"
+            fontsize=13, color="#e0e0e0", fontweight="bold"
         )
 
-        # ── price line ──
-        ax.plot(closes, color="#aaaaaa", linewidth=0.9, zorder=1)
+        # ── candlestick drawing (same style as FVG.py) ──
+        for i in x_vals:
+            is_bull = closes[i] >= opens[i]
+            color   = BULL_C if is_bull else BEAR_C
+            body_lo = min(opens[i], closes[i])
+            body_hi = max(opens[i], closes[i])
+            body_h  = body_hi - body_lo or (highs[i] - lows[i]) * 0.001  # doji guard
+
+            # Wick
+            ax.plot([i, i], [lows[i], highs[i]], color=color, linewidth=0.8, zorder=2)
+            # Body
+            ax.add_patch(Rectangle(
+                (i - 0.35, body_lo), 0.70, body_h,
+                facecolor=color, edgecolor=color, linewidth=0.5, zorder=3
+            ))
+
+        # ── previous-day vertical boundary lines ──
+        # Find bars whose IST date matches the last completed trading day
+        IST = "Asia/Kolkata"
+        try:
+            if df.index.tz is None:
+                idx_ist = df.index.tz_localize("UTC").tz_convert(IST)
+            else:
+                idx_ist = df.index.tz_convert(IST)
+            today_ist = pd.Timestamp.now(tz=IST).date()
+        except Exception:
+            idx_ist   = df.index
+            today_ist = pd.Timestamp.now().date()
+
+        bar_dates    = idx_ist.date
+        prev_dates   = [d for d in sorted(set(bar_dates)) if d < today_ist]
+        if prev_dates:
+            prev_day     = prev_dates[-1]                          # most recent completed day
+            prev_mask    = bar_dates == prev_day
+            prev_indices = np.where(prev_mask)[0]
+            if len(prev_indices) > 0:
+                pd_start = int(prev_indices[0])
+                pd_end   = int(prev_indices[-1])
+                # left boundary — start of previous day
+                ax.axvline(pd_start - 0.5, color=VLINE_CLR, linewidth=1.0,
+                           linestyle="--", alpha=0.55, zorder=6)
+                # right boundary — end of previous day
+                ax.axvline(pd_end + 0.5, color=VLINE_CLR, linewidth=1.0,
+                           linestyle="--", alpha=0.55, zorder=6)
+                # label the section
+                label_y = highs.max()
+                ax.text(
+                    (pd_start + pd_end) / 2, label_y,
+                    f"Prev Day  {prev_day.strftime('%d %b')}",
+                    color=VLINE_CLR, fontsize=7, alpha=0.6,
+                    ha="center", va="top", zorder=7
+                )
 
         # ── zone rectangles ──
         for z in zones:
@@ -319,22 +397,22 @@ if __name__ == "__main__":
                 linewidth=0,
                 facecolor=clr,
                 alpha=fa,
-                zorder=2,
+                zorder=4,
             )
             ax.add_patch(rect)
 
             # top & bottom border lines
             ea = EDGE_A * (0.35 if z["broken"] else 1.0)
             ax.plot([z["left"], z["right"]], [z["top"],    z["top"]],
-                    color=clr, linewidth=0.9, alpha=ea, zorder=3)
+                    color=clr, linewidth=0.9, alpha=ea, zorder=5)
             ax.plot([z["left"], z["right"]], [z["bottom"], z["bottom"]],
-                    color=clr, linewidth=0.9, alpha=ea, zorder=3)
+                    color=clr, linewidth=0.9, alpha=ea, zorder=5)
 
         # ── swing diamond markers ──
         for s in swings:
             clr = HIGH_CLR if s["type"] == "high" else LOW_CLR
             ax.scatter(s["index"], s["price"],
-                       color=clr, marker="D", s=70, zorder=4)
+                       color=clr, marker="D", s=70, zorder=8)
             ax.annotate(
                 f"{s['price']:.1f}",
                 xy=(s["index"], s["price"]),
@@ -344,24 +422,27 @@ if __name__ == "__main__":
             )
 
         # ── PDH / PDL horizontal lines ──
-        PDH_CLR = "#ffb74d"   # amber  — previous day high
-        PDL_CLR = "#81d4fa"   # sky    — previous day low
-
         pdh, pdl = previous_day_levels(ticker)
         if pdh is not None and pdl is not None:
-            n_bars = len(closes)
-
             ax.axhline(pdh, color=PDH_CLR, linewidth=1.2,
-                       linestyle="--", alpha=0.85, zorder=5)
-            ax.text(n_bars - 1, pdh, f" PDH {pdh:.2f}",
+                       linestyle="--", alpha=0.85, zorder=9)
+            ax.text(last_x, pdh, f" PDH {pdh:.2f}",
                     color=PDH_CLR, fontsize=8, va="bottom",
-                    ha="right", zorder=6)
+                    ha="right", zorder=10)
 
             ax.axhline(pdl, color=PDL_CLR, linewidth=1.2,
-                       linestyle="--", alpha=0.85, zorder=5)
-            ax.text(n_bars - 1, pdl, f" PDL {pdl:.2f}",
+                       linestyle="--", alpha=0.85, zorder=9)
+            ax.text(last_x, pdl, f" PDL {pdl:.2f}",
                     color=PDL_CLR, fontsize=8, va="top",
-                    ha="right", zorder=6)
+                    ha="right", zorder=10)
+
+        # ── X-axis: readable timestamps (same as FVG.py) ──
+        n_ticks  = min(12, len(df))
+        tick_pos = np.linspace(0, last_x, n_ticks, dtype=int)
+        tick_lbl = [df.index[i].strftime("%d %b\n%H:%M") for i in tick_pos]
+        ax.set_xticks(tick_pos)
+        ax.set_xticklabels(tick_lbl, fontsize=7, color="#aaaaaa")
+        ax.set_xlim(-1, last_x + 2)
 
         # ── legend ──
         legend_handles = [
@@ -373,17 +454,18 @@ if __name__ == "__main__":
                 mpatches.Patch(color=PDH_CLR, alpha=0.85, label=f"PDH  {pdh:.2f}"),
                 mpatches.Patch(color=PDL_CLR, alpha=0.85, label=f"PDL  {pdl:.2f}"),
             ]
-        ax.legend(handles=legend_handles,
-                  fontsize=8, facecolor="#1e1e1e",
-                  edgecolor="#444444", labelcolor="white")
+        ax.legend(
+            handles=legend_handles, fontsize=8,
+            facecolor="#1e1e1e", edgecolor="#444444", labelcolor="#e0e0e0",
+            loc="upper left"
+        )
 
         # ── axes styling ──
-        ax.set_xlabel("Bar Index", color="white", fontsize=9)
-        ax.set_ylabel("Price",     color="white", fontsize=9)
-        ax.tick_params(colors="white")
+        ax.tick_params(axis="y", colors="#aaaaaa", labelsize=8)
+        ax.set_ylabel("Price", color="#aaaaaa", fontsize=9)
+        ax.grid(True, alpha=0.12, color="#444444", linewidth=0.5)
         for spine in ax.spines.values():
-            spine.set_color("#444444")
-        ax.grid(True, alpha=0.12, color="#444444")
+            spine.set_edgecolor("#333333")
 
         plt.tight_layout()
         plt.show()
