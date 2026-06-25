@@ -19,10 +19,7 @@ from Dependencies.Features import *
 def run_all_analyzers():
 
     # ── One-time market open init (runs in master process only) ──
-    start = time.perf_counter()
     reset_session()
-    end = time.perf_counter()
-    print(f"Execution Time: {end - start:.2f} seconds")
 
     # Path to the 'Modules' folder (at project root)
     mod_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Modules")
