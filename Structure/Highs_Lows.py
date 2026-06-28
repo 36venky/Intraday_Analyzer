@@ -290,8 +290,8 @@ if __name__ == "__main__":
     from matplotlib.patches import Rectangle
     from Data_Manager import Download
 
-    tickers = ["FUSION.NS"]
-    Download(tickers,"60d")
+    tickers = ["INOXGREEN.NS"]
+    Download(tickers,"20d")
     download_daily_all(tickers)
 
     for ticker in tickers:
