@@ -112,8 +112,10 @@ def _check_mitigation(fvg_df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFr
     timestamps = price_df.index.to_numpy()          # numpy datetime64
 
     mit_flag = np.zeros(len(fvg_df), dtype=bool)
-    #  NEW FIXED CODE
-    mit_at = pd.Series(pd.NaT, index=fvg_df.index, dtype="datetime64[ns]")
+    #  create the series with a tz-aware dtype matching the price_df index
+    _tz      = price_df.index.tz
+    _dtype   = pd.DatetimeTZDtype(tz=_tz) if _tz is not None else "datetime64[ns]"
+    mit_at   = pd.Series(pd.NaT, index=fvg_df.index, dtype=_dtype)
 
     ts_numeric = price_df.index.view(np.int64)      # for searchsorted
 
@@ -304,8 +306,8 @@ def plot_fvg(df: pd.DataFrame, fvg_df: pd.DataFrame,
 if __name__ == "__main__":
     from Data_Manager import Download, download_daily_all
 
-    tickers = ["SALZERELEC.NS"]
-    Download(tickers,"50d")
+    tickers = ["BOMDYEING.NS"]
+    Download(tickers)
     download_daily_all(tickers)
 
     for ticker in tickers:
