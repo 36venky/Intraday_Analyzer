@@ -48,12 +48,11 @@ intraday-dashboard = "Dashboard.App:main"
 [tool.setuptools.packages.find]
 where   = ["."]
 include = [
-    "Controller*",
+    "Analyzer",
     "Data_Manager*",
     "Dependencies*",
-    "Indicators*",
+    "Dictionary*",
     "Strategy*",
-    "Structure*",
     "Dashboard*",
 ]
 exclude = [
