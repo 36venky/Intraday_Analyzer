@@ -2,7 +2,7 @@ import os
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-from Structure.Highs_Lows import (
+from Dictionary.Structure.Highs_Lows import (
     get_confirmed_swings,
     build_swing_zones,
     previous_day_levels,

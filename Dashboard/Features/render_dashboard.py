@@ -1,7 +1,7 @@
 import streamlit as st
 import plotly.graph_objects as go
 from .fetch_clean_data import fetch_clean_data
-from Features.market_structure import (
+from Dashboard.Features.market_structure import (
     extract_market_structure,
     get_swing_zones,
     get_pdh_pdl,
