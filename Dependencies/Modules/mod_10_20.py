@@ -6,7 +6,7 @@
 '''
 import Dependencies.Utils.Loggings  # noqa: F401
 
-from Controller import *
+from Analyzer import *
 import logging
 from Data_Manager import *
 from Dependencies.Features import Daily_Data

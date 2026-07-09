@@ -1,4 +1,4 @@
-from Controller import *
+from Analyzer import *
 from Data_Manager import *
 from Dependencies.Features import Daily_Data
 import logging
