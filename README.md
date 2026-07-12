@@ -1,217 +1,176 @@
-# Intraday Analyzer
+# 📊 Intraday Analyzer
 
-Real-time NSE stock market monitoring system that scans **1,000+ Indian equities** concurrently across multiple trading strategies and delivers automated BUY/SELL alerts via WhatsApp.
-
----
-
-## Overview
-
-The analyzer runs as a set of parallel subprocesses — one per ticker batch — that each download fresh OHLCV data every 15 minutes, apply strategy logic, and write signals to flat files and MongoDB. A Streamlit dashboard sits on top for live charting and signal review.
-
-```
-Main.py  →  spawns mod_10_20.py … mod_175_200.py  (11 parallel processes)
-              └─ each process calls Analyzer() every 15 minutes
-                    ├─ Download()       — yfinance bulk fetch (1m + 15m)
-                    ├─ Regression()     — R² + volume + DTW smooth
-                    ├─ FiveEMA()        — 5 EMA bearish confluence
-                    └─ scan_breakouts() — PDH/PDL breakout + 5m confirmation
-```
+A real-time intraday stock analysis system for NSE (Indian market) that scans **1000+ tickers concurrently**, applies technical strategies every 15 minutes during market hours, and surfaces signals through a live Streamlit dashboard.
 
 ---
 
-## Features
+## 🖼️ What It Does
 
-### Trading Strategies
-
-| Strategy | Timeframe | Signal Logic |
-|---|---|---|
-| **Regression** | 15m | R² ≥ 0.93 + volume ratio ≥ 1.7 → `REG` signal; R² ≥ 0.85 + smooth ≤ 0.03 + vol ratio > 1.5 → `VOL` signal |
-| **5 EMA** | 15m | Bearish candle above 5 EMA, two prior strong bullish candles, EMA₅ > VWAP |
-| **Breakout** | 15m + 5m | Candle opens inside PDH/PDL range and closes outside → confirmed by next 5m close |
-| **RegHistory** | 15m | Rolling R² momentum tracker — flags accelerating trend strength |
-
-### Data Pipeline
-
-- **Intervals downloaded**: `1m`, `15m`, `1h`, `4h` (resampled), `1d`
-- **4h candles**: Custom-resampled from 1h data matching NSE session windows (09:15–13:14 and 13:15–15:30)
-- **Candle close guard**: Strategies only run on fully closed candles — live unfinished candles are excluded
-- **Timezone**: All data normalized to `Asia/Kolkata`
-- **Tickers**: 11 batches of ~90 stocks each (`ticker1` … `ticker11`), covering large-cap, mid-cap, and small-cap NSE equities
-
-### Infrastructure
-
-- **Parallel execution**: `Main.py` spawns one subprocess per ticker batch using `subprocess.Popen`, all running simultaneously
-- **Signal deduplication**: `SignalState` class prevents the same signal from firing twice in a session for the same ticker
-- **WhatsApp alerts**: Twilio integration with a background queue worker — non-blocking, auto-started on first send
-- **MongoDB**: Signals stored per strategy collection via `store_signal()` / `get_signals()`
-- **SQLite**: Breakout data cached in `Data_Sets/breakout_data.db`
-- **Logging**: Custom log levels (`BUY`, `SELL`, `CYCLE`, `THREAD`, `INVALID`, `VALID`) written to `Logs/Main.log` with color output in terminal
-- **Session reset**: `reset_session()` wipes signal state and re-arms the daily data download at market open
-
-### Dashboard (Streamlit)
-
-Run with:
-```
-streamlit run Dashboard/App.py
-```
-
-| Page | Description |
+| Component | Description |
 |---|---|
-| **Graph** | Interactive candlestick / line charts with EMA, swing zones, support/resistance, trendlines, PDH/PDL overlays. Click any candle for OHLCV detail. |
-| **Signals** | Live signal table auto-refreshing every 3 seconds. Filter by ticker, signal type, or source file. |
-
-### Utilities
-
-| File | Purpose |
-|---|---|
-| `Tax.py` | Groww intraday brokerage + charges calculator (STT, GST, SEBI, stamp) |
-| `P&L_Plot.py` | Plot realized P&L bar chart, cumulative curve, and daily P&L from a Groww Excel export |
-| `Clean_Up.py` | Wipes `Signals/` and `Logs/` folders — run before each session |
+| **Analyzer Engine** | Downloads live OHLC data via yfinance, runs strategy logic on every closed 15m candle, and stores BUY/SELL signals |
+| **Concurrent Scanner** | Splits 1000+ tickers into 11 batches, runs each as an independent subprocess — all batches execute simultaneously |
+| **Signal Storage** | Persists signals to MongoDB (with market-hours gating) and flat-file logs under `Signals/` |
+| **Live Dashboard** | Streamlit multi-page app with real-time candlestick charts, market structure overlays, and a searchable signal feed |
 
 ---
 
-## Project Structure
+## 🏗️ Architecture
 
 ```
-Intraday_Analyzer/
-├── Main.py                      # Entry point — spawns all analyzer processes
-├── Analyzer.py                  # Per-cycle logic: Download → strategies → wait
-├── Clean_Up.py                  # Session cleanup utility
+Main.py                          ← Entry point; spawns all analyzer subprocesses
 │
-├── Strategy/
-│   ├── Regression.py            # R² + volume strategy
-│   ├── FiveEMA.py               # 5 EMA bearish confluence
-│   └── Breakout.py              # PDH/PDL breakout with 5m confirmation
+├── Dependencies/Modules/        ← 11 subprocess scripts (mod_10_20.py … mod_175_200.py)
+│   └── Each runs: while True → Analyzer(tickers) → wait_until_next_candle("15m")
+│
+├── Analyzer.py                  ← Per-cycle logic: Download → Regression → FiveEMA → scan_breakouts
 │
 ├── Data_Manager/
-│   ├── data.py                  # yfinance download, 4h resampler, get_data()
-│   └── tickers.py               # 11 ticker lists (ticker1 … ticker11)
+│   ├── data.py                  ← yfinance bulk download, IST timezone handling, candle-close guard
+│   └── tickers.py               ← 1000+ NSE ticker symbols split into 11 lists
+│
+├── Dictionary/
+│   ├── Structure/
+│   │   ├── Highs_Lows.py        ← Swing detection, confirmed swings, swing zone builder, PDH/PDL
+│   │   ├── FVG.py               ← Fair Value Gap detection (vectorized numpy), mitigation tracking
+│   │   └── Simmilar.py
+│   └── Indicators/
+│       ├── EMA.py  RSI.py  VWAP.py  Volume.py
 │
 ├── Dependencies/
 │   ├── Features/
-│   │   ├── Database.py          # MongoDB signal store/fetch/clear
-│   │   ├── Initializer.py       # SignalState + Daily_Data + reset_session
-│   │   ├── Messages.py          # Twilio WhatsApp queue worker
-│   │   ├── Tax.py               # Brokerage calculator
-│   │   └── P&L_Plot.py          # P&L visualization
-│   ├── Modules/
-│   │   └── mod_10_20.py … mod_175_200.py   # Per-batch subprocess workers
+│   │   ├── Database.py          ← MongoDB signal store/fetch/clear with market-hours guard
+│   │   ├── Initializer.py       ← SignalState dedup tracker, Daily_Data one-shot downloader
+│   │   ├── Messages.py          ← Telegram / notification dispatch
+│   │   └── Tax.py  Url.py  P&L_Plot.py
 │   └── Utils/
-│       ├── Loggings.py          # Custom log levels + color formatter
-│       ├── Fluctuation.py       # R² (is_fluctuation)
-│       ├── Smooth.py            # DTW smooth score
-│       ├── RollingSignal.py     # Rolling R² history (add_value)
-│       ├── Percent.py           # Percent breakdown label
-│       ├── Write.py             # Thread-safe file writer
-│       ├── Unique.py            # Global SignalState instance
-│       ├── Sleep.py             # wait_until_next_candle()
-│       └── Angle.py / Xval.py  # Geometry helpers
+│       ├── Loggings.py          ← Custom log levels (BUY/SELL/THREAD/CYCLE/INVALID/VALID), colour formatter
+│       ├── RollingSignal.py     ← Per-ticker rolling momentum tracker (last-3 value scoring)
+│       ├── Smooth.py  Angle.py  Fluctuation.py  Percent.py  Xval.py
+│       └── Sleep.py  Write.py  Unique.py
 │
-├── Dictionary/
-│   ├── Indicators/              # EMA, RSI, VWAP, Volume ratio
-│   └── Structure/               # FVG, Highs/Lows, swing detection
-│
-├── Dashboard/
-│   ├── App.py                   # Streamlit entry point
-│   ├── pages/
-│   │   ├── 1_📈_Graph.py        # Chart page
-│   │   └── 2_📋_Signals.py      # Signals table page
-│   ├── Features/
-│   │   ├── render_dashboard.py  # Plotly chart renderer
-│   │   ├── market_structure.py  # Swing zones, PDH/PDL
-│   │   ├── Indicators.py        # Dashboard indicator overlays
-│   │   └── fetch_clean_data.py  # Data fetch for dashboard
-│   └── Utils/
-│       └── signals.py           # Signal file parser + Streamlit table
-│
-├── Data_Sets/
-│   └── breakout_data.db         # SQLite breakout cache
-│
-├── Signals/                     # Strategy output .txt files (generated at runtime)
-├── Logs/                        # Main.log (generated at runtime)
-└── Pairs_Trading/               # Separate pairs trading sub-project
+└── Dashboard/
+    ├── App.py                   ← Streamlit entry point (streamlit run Dashboard/App.py)
+    ├── pages/
+    │   ├── 1_📈_Graph.py        ← Live candlestick chart with market-hours auto-refresh
+    │   └── 2_📋_Signals.py      ← Searchable, filterable signal feed (auto-refreshes every 3s)
+    ├── Features/
+    │   ├── render_dashboard.py  ← Plotly chart builder: candles, EMA, swing zones, PDH/PDL, trendlines
+    │   ├── market_structure.py  ← Swing points, S/R levels, trendline fitting (R² scored), FVG zones
+    │   ├── fetch_clean_data.py  ← Cached yfinance fetch with IST conversion + market-hours filter
+    │   └── UI.py                ← Sidebar controls (ticker input, interval, period, indicators)
+    └── Utils/
+        └── signals.py           ← Signal file parser
 ```
 
 ---
 
-## Setup
+## ⚙️ Technical Concepts Implemented
 
-### 1. Clone and install
+**Market Structure**
+- Swing high / low detection with rolling window
+- Confirmed swings requiring ≥1% follow-through before recording
+- Support & resistance zones built from swing candles with breakout tracking
+- Trendline fitting using `sklearn.LinearRegression` with R² quality filter (≥0.85)
+
+**Fair Value Gaps (FVG)**
+- Vectorized numpy detection of bullish and bearish gaps (3-candle pattern)
+- Mitigation tracking: marks gaps as filled when price closes back inside
+
+**Data Pipeline**
+- Multi-interval download: `1m`, `15m`, `1h`, `1d`
+- 4h candles resampled from 1h data using NSE-accurate session windows (09:15–13:14, 13:15–15:30)
+- Candle-close guard: returns `df[:-1]` when the last candle hasn't closed yet
+- IST timezone handling throughout (UTC localize → Asia/Kolkata convert)
+
+**Signal Deduplication**
+- `SignalState` class prevents the same signal firing on consecutive candles for the same ticker
+- `RollingSignal` scores momentum from the last 3 readings (mean diff + threshold checks)
+
+**Concurrency**
+- `subprocess.Popen` launches 11 independent processes, each handling ~90 tickers
+- `PYTHONPATH` propagated to subprocesses so imports resolve without `pip install -e .`
+
+**Logging**
+- Custom `logging` levels: `BUY (25)`, `SELL (26)`, `THREAD (27)`, `CYCLE (28)`, `INVALID (29)`, `VALID (30)`
+- ANSI colour formatter in console; structured `%(asctime)s | %(levelname)s | %(message)s` to `Logs/Main.log`
+
+---
+
+## 🖥️ Dashboard Features
+
+**Graph Page (`1_📈_Graph.py`)**
+- Plotly dark-theme candlestick / line chart
+- Toggleable overlays: EMA 9/21, swing highs/lows, support/resistance lines, trendlines, swing zones, PDH/PDL
+- Click a candle → shows OHLC detail (open, high, low, close, delta) inline
+- Auto-refresh only during market hours (09:15–15:15 IST), pauses when market is closed
+- Manual refresh button that clears the data cache
+
+**Signals Page (`2_📋_Signals.py`)**
+- Reads all `.txt` log files from `Signals/` directory
+- Filters: free-text search, BUY/SELL filter, per-file filter, row limit
+- Auto-refreshes every 3 seconds
+- Parses multiple log formats (Buy/Sell, Smooth, Regression, Valid, Count, Invalid)
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
 
 ```bash
-git clone <repo-url>
-cd Intraday_Analyzer
-pip install -e .
+pip install yfinance pandas numpy streamlit plotly scikit-learn pymongo python-dotenv streamlit-autorefresh pytz
 ```
 
-Or install dependencies directly:
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure environment
+### Environment Setup
 
 Create a `.env` file in the project root:
 
 ```env
-MONGO_URI=<your MongoDB Atlas connection string>
-SID=<Twilio Account SID>
-TOKEN=<Twilio Auth Token>
-TO_NUMBER=whatsapp:+91XXXXXXXXXX
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
 ```
 
-### 3. Run the analyzer
+### Run the Analyzer (market hours)
 
 ```bash
 python Main.py
 ```
 
-This spawns all 11 subprocess workers. Each worker downloads data for its ticker batch and runs all strategies in a loop, sleeping until the next 15m candle close.
+This spawns all 11 subprocess scanners. Each scanner downloads data and runs strategy logic on every closed 15-minute candle.
 
-### 4. Cleanup before a new session
-
-```bash
-python Clean_Up.py
-```
-
-### 5. Launch the dashboard
+### Run the Dashboard
 
 ```bash
 streamlit run Dashboard/App.py
 ```
 
----
-
-## Signal Files
-
-Strategy output is written to the `Signals/` folder as CSV-style `.txt` files:
-
-| File | Strategy | Columns |
-|---|---|---|
-| `Reg.txt` | Regression | `time, ticker, r2, smooth, vol_ratio` |
-| `Vol.txt` | Regression (vol) | `time, ticker, r2, smooth, vol_ratio` |
-| `Invalid_Reg.txt` | Regression (no signal) | `time, ticker, r2, smooth, vol_ratio` |
-| `5EMA.txt` | 5 EMA | `candle_time, ts, ticker, ema5, vwap, open, high, low, close` |
-| `Breakout_15m.txt` | Breakout (phase 1) | `ts, ticker, event_time, label, level, prev_high, prev_low, r2` |
-| `Breakout_5m_Confirmation.txt` | Breakout (phase 2) | `ts, ticker, event_time, label, signal, 5m candle OHLCV, r2` |
-| `RegHistory.txt` | Rolling R² | `ts, ticker, r2, mean_diff, near, history` |
+Navigate to `http://localhost:8501` in your browser.
 
 ---
 
-## Requirements
+## 📁 Data & Logs
 
-- Python 3.10+
-- MongoDB Atlas account (free tier works)
-- Twilio account with WhatsApp sandbox enabled
-- Active internet connection during market hours (09:15–15:30 IST, Mon–Fri)
-
-Key dependencies: `yfinance`, `pandas`, `numpy`, `scikit-learn`, `streamlit`, `plotly`, `pymongo`, `twilio`, `python-dotenv`, `dtaidistance`
+| Path | Contents |
+|---|---|
+| `Signals/` | Flat-file signal logs written by each strategy (`Buy.txt`, `Sell.txt`, `Smooth.txt`, etc.) |
+| `Logs/Main.log` | Structured application log (all levels) |
+| `Data_Sets/breakout_data.db` | SQLite database for breakout pattern storage |
 
 ---
 
-## Notes
+## 🛠️ Tech Stack
 
-- The analyzer is designed for **Indian market hours** (NSE). All candle logic, timezone handling, and PDH/PDL calculations are NSE-specific.
-- `Main.py` must be run from the project root so `PYTHONPATH` resolves correctly for all subprocesses.
-- Signals are deduplicated per session — the same signal won't fire twice for the same ticker until `reset_session()` is called at the next market open.
+| Category | Library |
+|---|---|
+| Data | `yfinance`, `pandas`, `numpy` |
+| ML / Stats | `scikit-learn` (LinearRegression for trendlines) |
+| Database | `pymongo` (MongoDB Atlas), `sqlite3` |
+| Dashboard | `streamlit`, `plotly` |
+| Concurrency | `subprocess`, Python standard library |
+| Config | `python-dotenv` |
+
+---
+
+## 📈 Ticker Universe
+
+Covers **1000+ NSE-listed stocks** across large-cap, mid-cap, and small-cap segments including NIFTY 50 components (RELIANCE, TCS, INFY, SBIN, HDFC), sectoral picks (IRCTC, CGPOWER, SUZLON, ADANIGREEN), and high-liquidity small-caps — split into 11 ticker lists for parallel processing.
