@@ -42,6 +42,7 @@ Signals/
 
 # ─── Trail / Debug Folders ─────────────────────────────────────────────────────
 Trail/
+Clean_Up.py
 
 # ─── Data Files (if sensitive or large) ────────────────────────────────────────
 *.csv
