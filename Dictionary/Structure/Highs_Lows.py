@@ -52,19 +52,41 @@ def previous_day_levels(ticker):
         logging.warning(f"{ticker} no completed daily candles available.")
         return None, None
 
-    # Before 09:00 IST — yesterday's session hasn't started yet;
-    # use the day before yesterday as the reference.
-    # At/after 09:00 IST — yesterday is the valid prior day.
-    market_open = now_ist.replace(hour=9, minute=0, second=0, microsecond=0)
+    # After 09:30 IST — check if live intraday data for today exists.
+    #   - Live data present  → yesterday is the valid reference (iloc[-1])
+    #   - No live data yet   → use day-before-yesterday (iloc[-2])
+    # Before 09:30 IST      → market hasn't opened; use day-before-yesterday.
+    market_open = now_ist.replace(hour=9, minute=30, second=0, microsecond=0)
 
-    if now_ist < market_open:
-        # Need at least 2 completed days to go one further back
+    if now_ist >= market_open:
+        # Check intraday data for a candle dated today
+        intraday = MARKET_DATA.get(ticker, {}).get("15m")
+
+        live_today = False
+        if intraday is not None and not intraday.empty:
+            try:
+                if intraday.index.tz is None:
+                    intra_ist = intraday.index.tz_localize("UTC").tz_convert(IST)
+                else:
+                    intra_ist = intraday.index.tz_convert(IST)
+                live_today = any(d == today_ist for d in intra_ist.date)
+            except Exception:
+                live_today = False
+
+        if live_today:
+            ref = prev_df.iloc[-1]          # yesterday — live data confirmed
+        else:
+            # After 09:30 but no intraday candle yet; fall back one more day
+            if len(prev_df) < 2:
+                logging.warning(f"{ticker} not enough history for pre-market PDH/PDL.")
+                return None, None
+            ref = prev_df.iloc[-2]          # day before yesterday
+    else:
+        # Before 09:30 IST — market not open yet
         if len(prev_df) < 2:
             logging.warning(f"{ticker} not enough history for pre-open PDH/PDL.")
             return None, None
-        ref = prev_df.iloc[-2]          # day before yesterday
-    else:
-        ref = prev_df.iloc[-1]          # yesterday
+        ref = prev_df.iloc[-2]              # day before yesterday
 
     prev_high = float(ref["High"])
     prev_low  = float(ref["Low"])
@@ -323,8 +345,8 @@ if __name__ == "__main__":
     from matplotlib.patches import Rectangle
     from Data_Manager import Download
 
-    tickers = ["SHAREINDIA.NS"]
-    Download(tickers,"50d")
+    tickers = ["BECTORFOOD.NS"]
+    Download(tickers,"10d")
     download_daily_all(tickers)
 
     for ticker in tickers:
@@ -381,38 +403,53 @@ if __name__ == "__main__":
             ))
 
         # ── previous-day vertical boundary lines ──
-        # Find bars whose IST date matches the last completed trading day
+        # Follows the same reference-day logic as previous_day_levels():
+        #   After 09:30 IST + live intraday candle exists → yesterday
+        #   Otherwise (before 09:30, or no live data yet)  → day-before-yesterday
         IST = "Asia/Kolkata"
         try:
             if df.index.tz is None:
                 idx_ist = df.index.tz_localize("UTC").tz_convert(IST)
             else:
                 idx_ist = df.index.tz_convert(IST)
-            today_ist = pd.Timestamp.now(tz=IST).date()
+            now_ist   = pd.Timestamp.now(tz=IST)
+            today_ist = now_ist.date()
         except Exception:
             idx_ist   = df.index
-            today_ist = pd.Timestamp.now().date()
+            now_ist   = pd.Timestamp.now()
+            today_ist = now_ist.date()
 
-        bar_dates    = idx_ist.date
-        prev_dates   = [d for d in sorted(set(bar_dates)) if d < today_ist]
+        bar_dates  = idx_ist.date
+        prev_dates = [d for d in sorted(set(bar_dates)) if d < today_ist]
+
         if prev_dates:
-            prev_day     = prev_dates[-1]                          # most recent completed day
-            prev_mask    = bar_dates == prev_day
+            market_open = now_ist.replace(hour=9, minute=30, second=0, microsecond=0)
+
+            # Check if a today-dated intraday candle is present in df
+            live_today = any(d == today_ist for d in bar_dates)
+
+            if now_ist >= market_open and live_today:
+                ref_day = prev_dates[-1]        # yesterday
+            else:
+                # Before 09:30, or after 09:30 but no live data yet
+                ref_day = prev_dates[-2] if len(prev_dates) >= 2 else prev_dates[-1]
+
+            prev_mask    = bar_dates == ref_day
             prev_indices = np.where(prev_mask)[0]
             if len(prev_indices) > 0:
                 pd_start = int(prev_indices[0])
                 pd_end   = int(prev_indices[-1])
-                # left boundary — start of previous day
+                # left boundary — start of reference day
                 ax.axvline(pd_start - 0.5, color=VLINE_CLR, linewidth=1.0,
                            linestyle="--", alpha=0.55, zorder=6)
-                # right boundary — end of previous day
+                # right boundary — end of reference day
                 ax.axvline(pd_end + 0.5, color=VLINE_CLR, linewidth=1.0,
                            linestyle="--", alpha=0.55, zorder=6)
                 # label the section
                 label_y = highs.max()
                 ax.text(
                     (pd_start + pd_end) / 2, label_y,
-                    f"Prev Day  {prev_day.strftime('%d %b')}",
+                    f"Prev Day  {ref_day.strftime('%d %b')}",
                     color=VLINE_CLR, fontsize=7, alpha=0.6,
                     ha="center", va="top", zorder=7
                 )
