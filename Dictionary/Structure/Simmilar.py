@@ -25,7 +25,7 @@ import sys
 import logging
 import numpy as np
 import pandas as pd
-
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from Data_Manager import get_data
 from Dictionary.Structure.Highs_Lows import get_confirmed_swings
 
@@ -386,12 +386,13 @@ if __name__ == "__main__":
     from matplotlib.patches import Rectangle
     from Data_Manager import Download, download_daily_all
     from Dictionary.Indicators.VWAP import VWAP
+    from Dictionary.Indicators.EMA import EMA
 
     # ── config ──
-    TICKER   = "ETERNAL.NS"
+    TICKER   = "BLUESTONE.NS"
     INTERVAL = "15m"
 
-    Download([TICKER], "5d")
+    Download([TICKER], "2d")
     download_daily_all([TICKER])
 
     df = get_data(TICKER, INTERVAL)
@@ -416,7 +417,9 @@ if __name__ == "__main__":
     vwap_series = VWAP(TICKER, INTERVAL)
     vwap_vals   = vwap_series.reindex(df.index).to_numpy().astype(float)
 
-    print(f"Liquidity sweeps : {len(sweeps)}")
+    # ── 5 EMA ──
+    ema5_series = EMA(TICKER, 5, INTERVAL)
+    ema5_vals   = ema5_series.reindex(df.index).to_numpy().astype(float)
 
     # =========================================================
     # PLOT
@@ -429,6 +432,7 @@ if __name__ == "__main__":
     SWING_HI_C = "#ef5350"
     SWING_LO_C = "#26a69a"
     VWAP_CLR   = "#ce93d8"    # purple        — VWAP
+    EMA5_CLR   = "#ffd54f"    # amber         — 5 EMA
 
     fig, ax = plt.subplots(figsize=(18, 8))
     fig.patch.set_facecolor("#0f0f0f")
@@ -480,6 +484,12 @@ if __name__ == "__main__":
     if len(seg_x) > 1:   # flush last segment
         ax.plot(seg_x, seg_v, color=VWAP_CLR, linewidth=1.2,
                 alpha=0.85, zorder=6)
+
+    # ── 5 EMA ──
+    valid_mask = ~np.isnan(ema5_vals)
+    ax.plot(x_vals[valid_mask], ema5_vals[valid_mask],
+            color=EMA5_CLR, linewidth=1.1, alpha=0.90,
+            label="5 EMA", zorder=5)
 
     # ── swing markers ──
     for s in swings:
@@ -537,6 +547,7 @@ if __name__ == "__main__":
         mpatches.Patch(color=SWING_HI_C, alpha=0.60, label="Swing High"),
         mpatches.Patch(color=SWING_LO_C, alpha=0.60, label="Swing Low"),
         mpatches.Patch(color=VWAP_CLR,   alpha=0.85, label="VWAP"),
+        mpatches.Patch(color=EMA5_CLR,   alpha=0.90, label="5 EMA"),
     ]
     ax.legend(
         handles=legend_handles, fontsize=8,

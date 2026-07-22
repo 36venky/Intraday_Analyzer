@@ -306,12 +306,12 @@ def plot_fvg(df: pd.DataFrame, fvg_df: pd.DataFrame,
 if __name__ == "__main__":
     from Data_Manager import Download, download_daily_all
 
-    tickers = ["BOMDYEING.NS"]
+    tickers = ["BLUESTONE.NS"]
     Download(tickers)
     download_daily_all(tickers)
 
     for ticker in tickers:
-        df = get_data(ticker, "15m")
+        df = get_data(ticker, "4h")
         if df is None or df.empty:
             print(f"{ticker} — no data.")
             continue
@@ -323,4 +323,4 @@ if __name__ == "__main__":
         active = active_fvg(fvg_df)
         print(f"\nActive (unmitigated): {len(active)}")
 
-        plot_fvg(df, fvg_df, ticker=ticker, only_active=False)
+        plot_fvg(df, fvg_df, ticker=ticker, only_active=True)

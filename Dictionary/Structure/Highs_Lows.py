@@ -370,7 +370,7 @@ if __name__ == "__main__":
     from matplotlib.patches import Rectangle
     from Data_Manager import Download
 
-    tickers = ["BECTORFOOD.NS"]
+    tickers = ["BLUESTONE.NS"]
     Download(tickers, "10d")
     download_daily_all(tickers)
 
@@ -387,7 +387,7 @@ if __name__ == "__main__":
     VLINE_CLR  = "#ffffff"
 
     for ticker in tickers:
-        df = get_data(ticker, "15m")
+        df = get_data(ticker, "4h")
         if df is None or df.empty:
             print(f"{ticker} — no data.")
             continue
