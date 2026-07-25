@@ -1,7 +1,6 @@
 import threading
 import time
 import os
-import sys
 from queue import Queue
 from twilio.rest import Client
 from dotenv import load_dotenv
@@ -11,8 +10,6 @@ load_dotenv()
 # =========================================================
 # LOGGER
 # =========================================================
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from Dependencies.Utils.Loggings import logger
 
 # =========================================================

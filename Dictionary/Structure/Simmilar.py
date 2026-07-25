@@ -376,6 +376,162 @@ def find_liquidity_sweeps(df, swings, tolerance_pct=0.001, lookback=None):
 
 
 # =========================================================
+# SECTION 3 — TICKER-LEVEL SWEEP SIGNAL
+# =========================================================
+
+def is_sweeping(
+    ticker:        str,
+    interval:      str  = "15m",
+    lookback_bars: int  = 3,
+    tolerance_pct: float = 0.002,
+    swing_window:  int  = 3,
+    df:            pd.DataFrame | None = None,
+    swings:        list[dict]   | None = None,
+) -> dict:
+    """
+    Return whether the most recent `lookback_bars` candles sweep any
+    confirmed swing high or swing low for `ticker`.
+
+    A sweep is defined the same way as find_liquidity_sweeps:
+      SWEEP-LOW  : wick < swing low   AND close > swing low  (± tol)
+      SWEEP-HIGH : wick > swing high  AND close < swing high (± tol)
+
+    Parameters
+    ----------
+    ticker        : yfinance-style symbol, e.g. "RELIANCE.NS"
+    interval      : timeframe to fetch, e.g. "15m", "1h", "4h"
+    lookback_bars : how many of the most-recent bars to inspect
+                    (default 3 — last 3 completed candles)
+    tolerance_pct : close-recovery tolerance (default 0.2 %)
+    swing_window  : window arg passed to get_confirmed_swings
+    df            : pre-fetched OHLCV dataframe (skips internal fetch)
+    swings        : pre-computed confirmed swings (skips internal computation)
+
+    Returns
+    -------
+    {
+        "ticker"      : str,
+        "sweeping"    : bool,          # True if ANY sweep found in window
+        "sweep_high"  : bool,          # True if a sweep-HIGH was detected
+        "sweep_low"   : bool,          # True if a sweep-LOW  was detected
+        "details"     : list[dict],    # full sweep records (may be empty)
+                        each record: {
+                            "bar_idx", "sweep_type", "swing_price",
+                            "swing_idx", "wick_extent", "close"
+                        }
+    }
+
+    Example
+    -------
+    >>> result = is_sweeping("RELIANCE.NS", interval="15m")
+    >>> if result["sweeping"]:
+    ...     print("Sweep detected:", result["details"])
+    """
+    # ── fetch data if not provided ──
+    if df is None:
+        df = get_data(ticker, interval)
+
+    if df is None or df.empty:
+        logging.warning(f"is_sweeping [{ticker}]: no data available.")
+        return {
+            "ticker"    : ticker,
+            "sweeping"  : False,
+            "sweep_high": False,
+            "sweep_low" : False,
+            "details"   : [],
+        }
+
+    # ── compute swings if not provided ──
+    if swings is None:
+        swings = get_confirmed_swings(
+            df,
+            window=swing_window,
+            significance=0.005,
+            confirm_pct=0.01,
+        )
+
+    if not swings:
+        return {
+            "ticker"    : ticker,
+            "sweeping"  : False,
+            "sweep_high": False,
+            "sweep_low" : False,
+            "details"   : [],
+        }
+
+    opens  = df["Open"].to_numpy()
+    highs  = df["High"].to_numpy()
+    lows   = df["Low"].to_numpy()
+    closes = df["Close"].to_numpy()
+    n      = len(df)
+
+    # ── window: last `lookback_bars` completed candles (exclude live bar) ──
+    window_start = max(0, n - lookback_bars - 1)
+    window_end   = n - 1                          # exclude the open live candle
+
+    details: list[dict] = []
+
+    for s in swings:
+        swing_idx   = s["index"]
+        swing_price = s["price"]
+        swing_type  = s["type"]
+
+        # only check bars inside the recent window that come AFTER the swing
+        for i in range(max(window_start, swing_idx + 1), window_end):
+
+            if swing_type == "low":
+                wick_below  = lows[i]   <  swing_price
+                close_above = closes[i] >  swing_price * (1.0 - tolerance_pct)
+                open_below  = opens[i]  <  swing_price
+                wick_touch  = lows[i]  <=  swing_price * (1.0 + tolerance_pct)
+
+                if wick_below and close_above and (open_below or wick_touch):
+                    details.append({
+                        "bar_idx"    : i,
+                        "sweep_type" : "sweep_low",
+                        "swing_price": swing_price,
+                        "swing_idx"  : swing_idx,
+                        "wick_extent": round(swing_price - lows[i], 2),
+                        "close"      : round(float(closes[i]), 2),
+                    })
+                    break   # one sweep per swing
+
+            else:  # high
+                wick_above  = highs[i]  >  swing_price
+                close_below = closes[i] <  swing_price * (1.0 + tolerance_pct)
+                open_above  = opens[i]  >  swing_price
+                wick_touch  = highs[i] >=  swing_price * (1.0 - tolerance_pct)
+
+                if wick_above and close_below and (open_above or wick_touch):
+                    details.append({
+                        "bar_idx"    : i,
+                        "sweep_type" : "sweep_high",
+                        "swing_price": swing_price,
+                        "swing_idx"  : swing_idx,
+                        "wick_extent": round(highs[i] - swing_price, 2),
+                        "close"      : round(float(closes[i]), 2),
+                    })
+                    break
+
+    sweep_high = any(d["sweep_type"] == "sweep_high" for d in details)
+    sweep_low  = any(d["sweep_type"] == "sweep_low"  for d in details)
+
+    result = {
+        "ticker"    : ticker,
+        "sweeping"  : len(details) > 0,
+        "sweep_high": sweep_high,
+        "sweep_low" : sweep_low,
+        "details"   : details,
+    }
+
+    logging.info(
+        f"is_sweeping [{ticker}|{interval}]: sweeping={result['sweeping']} "
+        f"high={sweep_high} low={sweep_low} ({len(details)} events)"
+    )
+    return result
+
+
+# =========================================================
 # TRAIL RUN — liquidity sweeps + VWAP plot
 # =========================================================
 
@@ -392,7 +548,7 @@ if __name__ == "__main__":
     TICKER   = "BLUESTONE.NS"
     INTERVAL = "15m"
 
-    Download([TICKER], "2d")
+    Download([TICKER], "20d")
     download_daily_all([TICKER])
 
     df = get_data(TICKER, INTERVAL)

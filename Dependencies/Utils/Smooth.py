@@ -1,11 +1,10 @@
 import numpy as np
 from dtaidistance import dtw
-from .Write import write
 import datetime as dt
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from Data_Manager import get_data
+from Dependencies.Utils.Write import write
 
 # =========================================================
 # PATTERNS  (module-level constant — built once at import)
@@ -37,7 +36,7 @@ def _normalize(series: np.ndarray) -> np.ndarray:
 # SMOOTH
 # =========================================================
 
-def smooth(ticker: str, r2: float):
+def smooth(ticker: str):
     """
     Compare ticker's 1m close prices against known BUY/SELL patterns
     using DTW distance. Returns the best matching distance or None.
@@ -45,7 +44,7 @@ def smooth(ticker: str, r2: float):
     df = get_data(ticker, '1m')
 
     if df is None:
-        return None
+        return 0
 
     closes = np.array(df['Close'].round(4).tolist(), dtype=float)
     n      = len(closes)
@@ -67,13 +66,14 @@ def smooth(ticker: str, r2: float):
 
         ts = dt.datetime.now().strftime('%H:%M:%S')
 
-        if distance <= 0.0300 and r2 >= 0.7:
-            write("1Smooth.txt", f"{ts},{ticker},{distance:.4f},{r2},{key}\n")
+        if distance <= 0.0100:
+            #write("1Smooth.txt", f"{ts},{ticker},{distance:.4f},{key}\n")
             return distance                  # early return on first match
+        else:
+            pass
+            #write("2Smooth.txt", f"{ts},{ticker},{distance:.4f},{key}\n")
 
-        write("2Smooth.txt", f"{ts},{ticker},{distance:.4f},{r2},{key}\n")
-
-    return round(float(np.min(distances)), 4) if distances else None
+    return round(float(np.min(distances)), 4) if distances else 0
 
 
 # =========================================================
@@ -89,5 +89,5 @@ if __name__ == "__main__":
     Download(tickers)
 
     for ticker in tickers:
-        result = smooth(ticker, 0.84)
-        print(f"{ticker:<20} → {result}")
+        result = smooth(ticker)
+        #print(f"{ticker:<20} → {result}")

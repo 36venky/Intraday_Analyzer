@@ -1,6 +1,6 @@
 import os
+import sys
 import logging
-from datetime import datetime, time as dtime
 
 from Data_Manager import *
 
@@ -41,3 +41,39 @@ class SignalState:
 
 # Single global instance shared across all strategies
 state = SignalState()
+
+# =========================================================
+# MARKET OPEN INITIALIZER
+# =========================================================
+
+_initialized = False   # ensures it runs only once per session
+
+def Daily_Data(tickers):
+    """
+    Runs once when execution starts between 9:30 and 9:45.
+    Downloads 1d data for all tickers.
+    Call reset_session() before this to wipe previous state.
+    """
+    global _initialized
+
+    if _initialized:
+        logging.info("Daily_Data already ran. Skipping.")
+        return
+
+    logging.info("🔄 Daily_Data running...")
+
+    download_daily_all(tickers)
+
+    _initialized = True
+    logging.info("✅ Daily_Data complete.")
+
+
+def reset_session():
+    """
+    Wipes signal state and re-arms Daily_Data for the next run.
+    Call this at startup or EOD.
+    """
+    global _initialized
+    _initialized = False
+    state.reset_all()
+    logging.info("Session reset. Ready for next market open.")

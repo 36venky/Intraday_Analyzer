@@ -7,6 +7,8 @@ from pymongo.errors import PyMongoError
 
 load_dotenv()
 
+from Dependencies.Utils.Loggings import logger
+
 # =========================================================
 # CONNECTION
 # =========================================================
@@ -58,12 +60,12 @@ def store_signal(strategy: str, ticker: str, signal: str, **kwargs):
 
     try:
         if not _is_market_hours():
-            logging.debug(f"[{strategy}] Signal skipped — outside market hours.")
+            logger.debug(f"[{strategy}] Signal skipped — outside market hours.")
             return
         _db[strategy].insert_one(doc)
-        logging.info(f"[{strategy}] {signal} stored for {ticker}.")
+        logger.info(f"[{strategy}] ✅ {signal} stored for {ticker}.")
     except PyMongoError as e:
-        logging.error(f"[{strategy}] DB insert failed for {ticker}: {e}")
+        logger.error(f"[{strategy}] ❌ DB insert failed for {ticker}: {e}")
 
 
 # =========================================================
@@ -93,7 +95,7 @@ def get_signals(strategy: str, ticker: str = None, limit: int = 50):
         )
         return list(cursor)
     except PyMongoError as e:
-        logging.error(f"[{strategy}] DB fetch failed: {e}")
+        logger.error(f"[{strategy}] ❌ DB fetch failed: {e}")
         return []
 
 
@@ -105,9 +107,9 @@ def clear_signals(strategy: str):
     """Delete all documents in a strategy collection."""
     try:
         result = _db[strategy].delete_many({})
-        logging.info(f"[{strategy}] Cleared {result.deleted_count} signals.")
+        logger.info(f"[{strategy}] ✅ Cleared {result.deleted_count} signals.")
     except PyMongoError as e:
-        logging.error(f"[{strategy}] DB clear failed: {e}")
+        logger.error(f"[{strategy}] ❌ DB clear failed: {e}")
 
 
 # =========================================================

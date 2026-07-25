@@ -1,24 +1,22 @@
 import logging
 import time
 import threading
-import sys
-import os
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from Data_Manager.data import get_data, Download
-from Structure import *
+from Dictionary.Structure import *
 from Data_Manager.tickers import get_ticker
-from Dependencies.Utils import write, is_fluctuation, wait_until_next_candle
+from Dependencies.Utils import write, is_fluctuation, wait_until_next_candle,percent
 from Dependencies.Utils.Unique import state
+from Dependencies.Utils.Loggings import logger
+from Dimension.confluence import validate_signal
+from Dimension.snapshot   import capture as snap
 
-logging.basicConfig(level=logging.INFO)
 
 # =========================================================
-# PENDING QUEUE  —  Option B background worker
+# PENDING QUEUE  —  background worker
 #
 # Structure of each entry:
 #   {
@@ -35,6 +33,7 @@ logging.basicConfig(level=logging.INFO)
 # =========================================================
 _pending_queue: list  = []
 _queue_lock           = threading.Lock()
+_queue_event          = threading.Event()   # set when queue has entries
 _STALE_MINUTES        = 25
 
 
@@ -45,14 +44,22 @@ _STALE_MINUTES        = 25
 def _worker_loop():
     """
     Daemon thread.
-    Sleeps until the next 5m candle boundary (via wait_until_next_candle),
-    then processes all entries that are now due.
-    Never blocks the main thread.
+    Blocks on _queue_event — wakes up ONLY when scan_breakouts()
+    enqueues at least one entry.  Then sleeps until the next 5m
+    candle boundary and processes all due entries.
     """
     while True:
+        # Block until a breakout is actually queued
+        _queue_event.wait()
+
         wait_until_next_candle("5m")
         time.sleep(2)          # small settle buffer after candle close
         _process_due_entries()
+
+        # Clear the event only if the queue is now empty
+        with _queue_lock:
+            if not _pending_queue:
+                _queue_event.clear()
 
 
 def _process_due_entries():
@@ -70,13 +77,22 @@ def _process_due_entries():
     tickers = [e["ticker"] for e in due]
     logging.info(f"[Worker] Processing {len(due)} due entries: {tickers}")
 
-    closes_5m = _fetch_5m_closes_batch(tickers)
-    results   = _apply_5m_confirmation(due, closes_5m)
+    candles_5m = _fetch_5m_candles_batch(tickers)
+    results    = _apply_5m_confirmation(due, candles_5m)
 
     for r in results:
         _log_and_write(r)
         if r["final_signal"] in ("BUY", "SELL"):
             state.record("Breakout", r["ticker"], r["final_signal"])
+            candle = r.get("candle_5m") or {}
+            detail = (
+                f"type={r['type']} event={r['event_time']} "
+                f"5m_close={candle.get('close')} r2={r['r2']:.2f}"
+            )
+            if r["final_signal"] == "BUY":
+                logger.buy(f"{r['ticker']} | {detail}")
+            else:
+                logger.sell(f"{r['ticker']} | {detail}")
 
 
 # Start the single daemon worker at import time
@@ -86,6 +102,7 @@ _worker_thread = threading.Thread(
     daemon=True,
 )
 _worker_thread.start()
+
 
 # =========================================================
 # HELPERS
@@ -100,8 +117,6 @@ def _next_5m_boundary() -> datetime:
     return boundary + timedelta(seconds=2)
 
 
-
-
 def _breakout_is_fresh(breakout_open_time) -> bool:
     # candle_close = breakout_open_time + timedelta(minutes=15)
     # age = (datetime.now(breakout_open_time.tzinfo) - candle_close).total_seconds() / 60
@@ -110,23 +125,24 @@ def _breakout_is_fresh(breakout_open_time) -> bool:
 
 
 # =========================================================
-# BATCH 5m FETCH
+# BATCH 5m FETCH  —  full OHLCV of last completed candle
 # =========================================================
 
-def _fetch_5m_closes_batch(tickers: list) -> dict:
+def _fetch_5m_candles_batch(tickers: list) -> dict:
     """
     Single yf.download for all tickers at 5m interval.
-    Returns { ticker: last_completed_close (float) | None }
+    Returns { ticker: {"open", "high", "low", "close", "volume"} | None }
+    The candle returned is iloc[-2] — the last fully closed 5m bar.
     """
     try:
         data = yf.download(
-            tickers   = tickers,
-            interval  = "5m",
-            period    = "1d",
-            progress  = False,
+            tickers     = tickers,
+            interval    = "5m",
+            period      = "1d",
+            progress    = False,
             auto_adjust = True,
-            group_by  = "ticker",
-            threads   = True,
+            group_by    = "ticker",
+            threads     = True,
         )
     except Exception as e:
         logging.error(f"Batch 5m download failed: {e}")
@@ -135,10 +151,11 @@ def _fetch_5m_closes_batch(tickers: list) -> dict:
     result = {}
     for ticker in tickers:
         try:
+            cols = ["Open", "High", "Low", "Close", "Volume"]
             df = (
-                data[ticker][["Close"]].copy()
+                data[ticker][cols].copy()
                 if len(tickers) > 1
-                else data[["Close"]].copy()
+                else data[cols].copy()
             )
             try:
                 df.index = df.index.tz_convert("Asia/Kolkata")
@@ -152,7 +169,15 @@ def _fetch_5m_closes_batch(tickers: list) -> dict:
                 continue
 
             # iloc[-2] → last fully closed candle
-            result[ticker] = float(df["Close"].iloc[-2])
+            row = df.iloc[-2]
+            result[ticker] = {
+                "open"   : round(float(row["Open"]),   2),
+                "high"   : round(float(row["High"]),   2),
+                "low"    : round(float(row["Low"]),    2),
+                "close"  : round(float(row["Close"]),  2),
+                "volume" : int(row["Volume"]),
+                "time"   : df.index[-2].strftime("%H:%M"),
+            }
 
         except Exception as e:
             logging.error(f"[{ticker}] 5m parse error: {e}")
@@ -193,7 +218,7 @@ def _find_bearish_breakdown(df_today, prev_high, prev_low):
 # PHASE 2  —  5m close confirmation logic  (pure, no I/O)
 # =========================================================
 
-def _apply_5m_confirmation(pending: list, closes_5m: dict) -> list:
+def _apply_5m_confirmation(pending: list, candles_5m: dict) -> list:
     """
     BULL path:
         5m close > bo_high    → BUY          (broke out and held)
@@ -207,8 +232,9 @@ def _apply_5m_confirmation(pending: list, closes_5m: dict) -> list:
     """
     results = []
     for entry in pending:
-        ticker   = entry["ticker"]
-        close_5m = closes_5m.get(ticker)
+        ticker    = entry["ticker"]
+        candle    = candles_5m.get(ticker)
+        close_5m  = candle["close"] if candle else None
 
         if close_5m is None:
             final = "CONSOLIDATING"
@@ -229,7 +255,7 @@ def _apply_5m_confirmation(pending: list, closes_5m: dict) -> list:
             else:
                 final = "CONSOLIDATING"
 
-        results.append({**entry, "final_signal": final, "close_5m": close_5m})
+        results.append({**entry, "final_signal": final, "candle_5m": candle})
 
     return results
 
@@ -240,8 +266,9 @@ def _apply_5m_confirmation(pending: list, closes_5m: dict) -> list:
 
 def _write_raw_breakout(entry: dict):
     """
-    Writes the raw 15m breakout/breakdown to a separate file
-    BEFORE any 5m confirmation.  Format:
+    Writes the raw 15m breakout/breakdown to Breakout_15m.txt
+    BEFORE any 5m confirmation.
+    Format:
         timestamp, ticker, event_time, type, key_level, prev_high, prev_low, r2
     """
     now       = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -259,32 +286,77 @@ def _write_raw_breakout(entry: dict):
         key_level = entry["bd_low"]
         label     = "BEAR_BREAKDOWN"
 
-    write(
-        "1Breakouts_raw.txt",
-        f"{now},{ticker},{event},{label},{key_level:.2f},{prev_high:.2f},{prev_low:.2f},{r2:.2f}\n",
-    )
-    logging.info(f"[{ticker}] RAW {label} written | event={event} | level={key_level:.2f}")
+    if r2 > 0.75:
+        write(
+            "Breakout_15m.txt",
+            f"{now},{ticker},{event},{label},{key_level:.2f},"
+            f"{prev_high:.2f},{prev_low:.2f},{r2:.2f}\n",
+        )
+        logging.info(f"[{ticker}] RAW {label} written | event={event} | level={key_level:.2f}")
 
 
 def _log_and_write(r: dict):
-    now       = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ticker    = r["ticker"]
-    label     = f"{r['type']}_BREAKOUT"
-    final     = r["final_signal"]
-    close_5m  = r.get("close_5m")
-    r2        = r["r2"]
-    close_str = f"{close_5m:.2f}" if close_5m is not None else "N/A"
+    """
+    Logs and writes 5m confirmation details to Breakout_5m_Confirmation.txt.
+    Format:
+        timestamp, ticker, event_time, type, signal,
+        5m_time, 5m_open, 5m_high, 5m_low, 5m_close, 5m_volume, r2
+    """
+
+    now      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ticker   = r["ticker"]
+    label    = f"{r['type']}_BREAKOUT"
+    final    = r["final_signal"]
+    r2       = r["r2"]
+    candle   = r.get("candle_5m")
+
+
+    bd = percent(ticker)
+
+    # 1. Guard against API/Data download failures
+    if bd is None:
+        logging.warning(f"[{ticker}] Skipped breakdown processing - No candle data available.")
+        bd_label = "N/A"
+    else:
+        bd_label = bd.label # 2. Fixed the spelling typo here!
+
+    if candle:
+        c_time   = candle["time"]
+        c_open   = f"{candle['open']:.2f}"
+        c_high   = f"{candle['high']:.2f}"
+        c_low    = f"{candle['low']:.2f}"
+        c_close  = f"{candle['close']:.2f}"
+        c_volume = str(candle["volume"])
+    else:
+        c_time = c_open = c_high = c_low = c_close = c_volume = "N/A"
 
     logging.info(
         f"[{ticker}] {label} | event={r['event_time']} | "
-        f"5m_close={close_str} | signal={final} | r2={r2:.2f}"
+        f"5m [{c_time}] O={c_open} H={c_high} L={c_low} C={c_close} V={c_volume} | "
+        f"signal={final} | r2={r2:.2f}"
     )
 
     if r2 > 0.75:
+        # ── HTF confluence check ──────────────────────────
+        close_5m  = candle.get("close") if candle else None
+        raw_signal = r.get("final_signal", "BUY")   # BUY / SELL from 5m confirmation
+
+        if close_5m:
+            cf     = validate_signal(ticker, raw_signal, close_5m)
+            final  = cf["final_signal"]
+            cf_tag = f"{cf['action']}:{cf['timeframe'] or 'raw'}"
+        else:
+            final  = raw_signal
+            cf_tag = "FOLLOW:no_price"
+        # ─────────────────────────────────────────────────
+
         write(
-            "1Breakouts_v2.txt",
-            f"{now},{ticker},{r['event_time']},{label},{final},{close_str},{r2:.2f}\n",
+            "Breakout_5m_Confirmation.txt",
+            f"{now},{ticker},{r['event_time']},{label},{final},"
+            f"{c_time},{c_open},{c_high},{c_low},{c_close},{c_volume},{bd_label},{r2:.2f},{cf_tag}\n",
         )
+        snap(ticker, strategy="breakout", signal=final,
+             price=float(c_close) if c_close != "N/A" else None)
 
 
 # =========================================================
@@ -299,6 +371,7 @@ def reset_confirmed():
     state.reset_all()
     with _queue_lock:
         _pending_queue.clear()
+    _queue_event.clear()
     logging.info("[Breakout] Signal state reset for new session.")
 
 
@@ -309,7 +382,9 @@ def scan_breakouts(tickers: list) -> list:
     1. Scans all tickers on 15m for a fresh breakout/breakdown.
     2. For each match, calculates when the next 5m candle will close
        and enqueues the entry with that fire_at timestamp.
-    3. Returns the list of newly-enqueued pending entries immediately
+    3. Signals the background worker to wake up (only now it will sleep
+       until the next 5m boundary).
+    4. Returns the list of newly-enqueued pending entries immediately
        so the main loop is never blocked.
 
     Phase 2 (5m confirmation) runs in the background worker thread
@@ -327,14 +402,13 @@ def scan_breakouts(tickers: list) -> list:
     with _queue_lock:
         for entry in pending_new:
             ticker = entry["ticker"]
-            # Already sitting in the queue waiting for confirmation
             if state.has_fired("Breakout", ticker, "QUEUED"):
                 continue
             entry["fire_at"] = fire_at
             _pending_queue.append(entry)
             state.record("Breakout", ticker, "QUEUED")
 
-            # ── Raw breakout log (pre-confirmation) ──────────────
+            # ── Raw 15m breakout log (pre-confirmation) ──────────
             _write_raw_breakout(entry)
 
             logging.info(
@@ -346,6 +420,10 @@ def scan_breakouts(tickers: list) -> list:
         f"[Breakout] {len(pending_new)} breakout(s) enqueued. "
         f"Worker confirms at {fire_at.strftime('%H:%M:%S')}."
     )
+
+    # Wake the worker — it was blocked waiting for something to do
+    _queue_event.set()
+
     return pending_new
 
 
@@ -425,7 +503,7 @@ def _scan_all_15m(tickers: list) -> list:
 # =========================================================
 
 def main():
-    tickers = get_all_tickers()
+    tickers = get_ticker(6)
     print("Started")
     download_daily_all(tickers)
     Download(tickers)

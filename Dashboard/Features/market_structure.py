@@ -1,6 +1,14 @@
 import os
+import sys
 import numpy as np
 from sklearn.linear_model import LinearRegression
+
+# Ensure the project root is on sys.path so Dictionary (and all other
+# project packages) can be resolved regardless of where Streamlit is
+# launched from (e.g. Dashboard/ or project root).
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from Dictionary.Structure.Highs_Lows import (
     get_confirmed_swings,

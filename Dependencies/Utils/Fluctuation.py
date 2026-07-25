@@ -1,17 +1,23 @@
 import numpy as np
-import yfinance as yf
 import pandas as pd
 import math
 import logging
 from sklearn.linear_model import LinearRegression
 from datetime import datetime
+import os, sys
+from Data_Manager import *
 
 
 def is_fluctuation(ticker):
     data = get_data(ticker, '1m')
     
-    if data is None:
-        return False, 0
+    if data is None or len(data) < 13:
+        return 0
+
+    data = data.dropna()
+
+    if len(data) < 13:
+        return 0
 
     df = data
     end_index = len(df)
@@ -51,11 +57,11 @@ def is_fluctuation(ticker):
     # --- Final logic ---
     if (volatility < vol_threshold and r2 >= 0.80 ) :#or (r2 >= 0.92):
         line = (f"{datetime.now().strftime('%H:%M:%S')},{ticker},{volatility:.4f},{angle:.2f},{range_percent:.2f},[{z}],{r2:.2f}")
-        return True , r2
+        return  r2
 
     else:
         line = (f"{datetime.now().strftime('%H:%M:%S')},{ticker},{volatility:.4f},{angle:.2f},{range_percent:.2f},[{z}],{r2:.2f}")
-        return False , r2
+        return  r2
 
 # =========================================================
 # TRAIL RUN
@@ -65,7 +71,6 @@ def main():
     import sys
     import os
     import time
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
     from Data_Manager import Download, get_data
 
     tickers = ['CGPOWER', 'IRCTC', 'DABUR', 'DLF', 'MARICO', 'SUNTV', 'UPL', 'TATACHEM', 'TATATECH', 'TANLA']
@@ -78,8 +83,8 @@ def main():
     print("-" * 40)
 
     for ticker in tickers:
-        result, r2 = is_fluctuation(ticker)
-        status = "✅ YES" if result else "❌ NO"
+        r2 = is_fluctuation(ticker)
+        status = "✅ YES" if r2 >= 0.80 else "❌ NO"
         print("{:<20} {:<10} {:.2f}".format(ticker, status, r2))
 
 

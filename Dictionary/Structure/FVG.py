@@ -317,10 +317,7 @@ if __name__ == "__main__":
             continue
 
         fvg_df = detect_fvg(df, mitigated=True)
-        # print(f"\n{ticker} — {len(fvg_df)} FVGs detected")
-        # print(fvg_df.to_string(index=False))
-
         active = active_fvg(fvg_df)
-        print(f"\nActive (unmitigated): {len(active)}")
+        print(active)
 
         plot_fvg(df, fvg_df, ticker=ticker, only_active=True)
